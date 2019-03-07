@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([PROJ], [6.0.0],
+AC_INIT([PROJ], [6.1.0],
         [https://github.com/OSGeo/proj.4/issues], proj, [https://proj4.org])
 AC_CONFIG_MACRO_DIR([m4])
 AC_LANG(C)
@@ -326,7 +326,7 @@ AC_ARG_WITH(external-gtest,
             AS_HELP_STRING([--with-external-gtest],
                [Whether to use external Google Test]),,)
 
-if test "x$with_external_gtest" == "xyes" ; then
+if test "x$with_external_gtest" = "xyes" ; then
     AC_MSG_RESULT([using external GTest.])
     PKG_CHECK_MODULES([GTEST], [gtest >= 1.8.0])
 else
@@ -334,7 +334,7 @@ else
     GTEST_CFLAGS="-I\$(top_srcdir)/test/googletest/include"
     GTEST_LIBS="\$(top_builddir)/test/googletest/libgtest.la"
 fi
-AM_CONDITIONAL(USE_EXTERNAL_GTEST, [test "x$with_external_gtest" == "xyes"])
+AM_CONDITIONAL(USE_EXTERNAL_GTEST, [test "x$with_external_gtest" = "xyes"])
 AC_SUBST(GTEST_CFLAGS,$GTEST_CFLAGS)
 AC_SUBST(GTEST_LIBS,$GTEST_LIBS)
 

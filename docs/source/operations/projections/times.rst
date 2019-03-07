@@ -1,16 +1,19 @@
-.. _aea:
+.. _times:
 
 ********************************************************************************
-Albers Equal Area
+Times
 ********************************************************************************
+
+See :cite:`Snyder1993`, p.213-214.
+
 +---------------------+----------------------------------------------------------+
-| **Classification**  | Conic                                                    |
+| **Classification**  | Cylindrical                                              |
 +---------------------+----------------------------------------------------------+
-| **Available forms** | Forward and inverse, spherical and elliptical projection |
+| **Available forms** | Forward and inverse, spherical projection                |
 +---------------------+----------------------------------------------------------+
 | **Defined area**    | Global                                                   |
 +---------------------+----------------------------------------------------------+
-| **Alias**           | aea                                                      |
+| **Alias**           | times                                                    |
 +---------------------+----------------------------------------------------------+
 | **Domain**          | 2D                                                       |
 +---------------------+----------------------------------------------------------+
@@ -19,34 +22,22 @@ Albers Equal Area
 | **Output type**     | Projected coordinates                                    |
 +---------------------+----------------------------------------------------------+
 
-
-.. figure:: ./images/aea.png
+.. figure:: ./images/times.png
    :width: 500 px
    :align: center
-   :alt:   Albers Equal Area
+   :alt:   Times  
 
-   proj-string: ``+proj=aea +lat_1=29.5 +lat_2=42.5``
+   proj-string: ``+proj=times``
 
-Options
+Parameters
 ################################################################################
 
-Required
---------------------------------------------------------------------------------
-
-.. include:: ../options/lat_1.rst
-
-.. include:: ../options/lat_2.rst
-
-Optional
---------------------------------------------------------------------------------
+.. note:: All parameters are optional for projection.
 
 .. include:: ../options/lon_0.rst
-
-.. include:: ../options/ellps.rst
 
 .. include:: ../options/R.rst
 
 .. include:: ../options/x_0.rst
 
 .. include:: ../options/y_0.rst
-

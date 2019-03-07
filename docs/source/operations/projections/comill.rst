@@ -1,16 +1,22 @@
-.. _aea:
+.. _comill:
 
 ********************************************************************************
-Albers Equal Area
+Compact Miller
 ********************************************************************************
+
+The Compact Miller projection is a cylindrical map projection with a
+height-to-width ratio of 0.6:1.
+
+See :cite:`Jenny2015`
+
 +---------------------+----------------------------------------------------------+
-| **Classification**  | Conic                                                    |
+| **Classification**  | Cylindrical                                              |
 +---------------------+----------------------------------------------------------+
-| **Available forms** | Forward and inverse, spherical and elliptical projection |
+| **Available forms** | Forward and inverse, spherical projection                |
 +---------------------+----------------------------------------------------------+
 | **Defined area**    | Global                                                   |
 +---------------------+----------------------------------------------------------+
-| **Alias**           | aea                                                      |
+| **Alias**           | comill                                                   |
 +---------------------+----------------------------------------------------------+
 | **Domain**          | 2D                                                       |
 +---------------------+----------------------------------------------------------+
@@ -19,34 +25,22 @@ Albers Equal Area
 | **Output type**     | Projected coordinates                                    |
 +---------------------+----------------------------------------------------------+
 
-
-.. figure:: ./images/aea.png
+.. figure:: ./images/comill.png
    :width: 500 px
    :align: center
-   :alt:   Albers Equal Area
+   :alt:   Compact Miller  
 
-   proj-string: ``+proj=aea +lat_1=29.5 +lat_2=42.5``
+   proj-string: ``+proj=comill``
 
-Options
+Parameters
 ################################################################################
 
-Required
---------------------------------------------------------------------------------
-
-.. include:: ../options/lat_1.rst
-
-.. include:: ../options/lat_2.rst
-
-Optional
---------------------------------------------------------------------------------
+.. note:: All parameters are optional for projection.
 
 .. include:: ../options/lon_0.rst
-
-.. include:: ../options/ellps.rst
 
 .. include:: ../options/R.rst
 
 .. include:: ../options/x_0.rst
 
 .. include:: ../options/y_0.rst
-

@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Project:  PROJ
- * Purpose:  ISO19111:2018 implementation
+ * Purpose:  ISO19111:2019 implementation
  * Author:   Even Rouault <even dot rouault at spatialys dot com>
  *
  ******************************************************************************
@@ -76,7 +76,8 @@ class WKTConstants {
     static const std::string SCALEUNIT;
     static const std::string TIMEUNIT;
     static const std::string ELLIPSOID;
-    static const std::string CS;
+    // underscore, since there is a CS macro in Solaris system headers
+    static const std::string CS_;
     static const std::string ID;
     static const std::string PROJCRS;
     static const std::string BASEGEODCRS;

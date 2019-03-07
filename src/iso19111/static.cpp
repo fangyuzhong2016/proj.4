@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Project:  PROJ
- * Purpose:  ISO19111:2018 implementation
+ * Purpose:  ISO19111:2019 implementation
  * Author:   Even Rouault <even dot rouault at spatialys dot com>
  *
  ******************************************************************************
@@ -215,7 +215,7 @@ DEFINE_WKT_CONSTANT(ANGLEUNIT);
 DEFINE_WKT_CONSTANT(SCALEUNIT);
 DEFINE_WKT_CONSTANT(TIMEUNIT);
 DEFINE_WKT_CONSTANT(ELLIPSOID);
-DEFINE_WKT_CONSTANT(CS);
+const std::string WKTConstants::CS_(createAndAddToConstantList("CS"));
 DEFINE_WKT_CONSTANT(ID);
 DEFINE_WKT_CONSTANT(PROJCRS);
 DEFINE_WKT_CONSTANT(BASEGEODCRS);

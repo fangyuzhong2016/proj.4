@@ -3,7 +3,7 @@
 set -e
 
 # Download grid files
-wget http://download.osgeo.org/proj/proj-datumgrid-1.7.zip
+wget http://download.osgeo.org/proj/proj-datumgrid-1.8.zip
 
 # prepare build files
 ./autogen.sh
@@ -23,7 +23,7 @@ cd $TAR_DIRECTORY
 mkdir build_autoconf
 cd build_autoconf
 if [ -f /usr/lib/jvm/java-7-openjdk-amd64/include/jni.h ]; then
-    CXXFLAGS="-I/usr/lib/jvm/java-7-openjdk-amd64/include -I/usr/lib/jvm/java-7-openjdk-amd64/include/linux" ../configure --prefix=/tmp/proj_autoconf_install_from_dist_all --with-jni
+    CXXFLAGS="-I/usr/lib/jvm/java-7-openjdk-amd64/include -I/usr/lib/jvm/java-7-openjdk-amd64/include/linux $CXXFLAGS" ../configure --prefix=/tmp/proj_autoconf_install_from_dist_all --with-jni
 else
     ../configure --prefix=/tmp/proj_autoconf_install_from_dist_all
 fi
@@ -49,7 +49,7 @@ cd ..
 cd ../..
 
 # Install grid files
-(cd data && unzip -o ../proj-datumgrid-1.7.zip)
+(cd data && unzip -o ../proj-datumgrid-1.8.zip)
 
 # autoconf build with grids
 mkdir build_autoconf_grids
