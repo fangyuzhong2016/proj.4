@@ -77,6 +77,11 @@ static void PROJ_NO_INLINE proj_log_error(PJ_CONTEXT *ctx, const char *function,
     msg += ": ";
     msg += text;
     ctx->logger(ctx->logger_app_data, PJ_LOG_ERROR, msg.c_str());
+    auto previous_errno = pj_ctx_get_errno(ctx);
+    if (previous_errno == 0) {
+        // only set errno if it wasn't set deeper down the call stack
+        pj_ctx_set_errno(ctx, PJD_ERR_GENERIC_ERROR);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +139,7 @@ static PJ *pj_obj_create(PJ_CONTEXT *ctx, const IdentifiedObjectNNPtr &objIn) {
             auto formatter = PROJStringFormatter::create(
                 PROJStringFormatter::Convention::PROJ_5, dbContext);
             auto projString = coordop->exportToPROJString(formatter.get());
-            auto pj = pj_create_internal(
-                ctx, projString.empty() ? "+proj=affine" : projString.c_str());
+            auto pj = pj_create_internal(ctx, projString.c_str());
             if (pj) {
                 pj->iso_obj = objIn;
                 return pj;
@@ -975,29 +979,18 @@ int proj_is_equivalent_to(const PJ *obj, const PJ *other,
         return false;
     }
 
-    // Make sure that the C and C++ enumerations match
-    static_assert(static_cast<int>(PJ_COMP_STRICT) ==
-                      static_cast<int>(IComparable::Criterion::STRICT),
-                  "");
-    static_assert(static_cast<int>(PJ_COMP_EQUIVALENT) ==
-                      static_cast<int>(IComparable::Criterion::EQUIVALENT),
-                  "");
-    static_assert(
-        static_cast<int>(PJ_COMP_EQUIVALENT_EXCEPT_AXIS_ORDER_GEOGCRS) ==
-            static_cast<int>(
-                IComparable::Criterion::EQUIVALENT_EXCEPT_AXIS_ORDER_GEOGCRS),
-        "");
+    const auto cppCriterion = ([](PJ_COMPARISON_CRITERION l_criterion) {
+        switch (l_criterion) {
+        case PJ_COMP_STRICT:
+            return IComparable::Criterion::STRICT;
+        case PJ_COMP_EQUIVALENT:
+            return IComparable::Criterion::EQUIVALENT;
+        case PJ_COMP_EQUIVALENT_EXCEPT_AXIS_ORDER_GEOGCRS:
+            break;
+        }
+        return IComparable::Criterion::EQUIVALENT_EXCEPT_AXIS_ORDER_GEOGCRS;
+    })(criterion);
 
-    // Make sure we enumerate all values. If adding a new value, as we
-    // don't have a default clause, the compiler will warn.
-    switch (criterion) {
-    case PJ_COMP_STRICT:
-    case PJ_COMP_EQUIVALENT:
-    case PJ_COMP_EQUIVALENT_EXCEPT_AXIS_ORDER_GEOGCRS:
-        break;
-    }
-    const IComparable::Criterion cppCriterion =
-        static_cast<IComparable::Criterion>(criterion);
     return obj->iso_obj->isEquivalentTo(other->iso_obj.get(), cppCriterion);
 }
 
@@ -1121,40 +1114,24 @@ const char *proj_as_wkt(PJ_CONTEXT *ctx, const PJ *obj, PJ_WKT_TYPE type,
         return nullptr;
     }
 
-    // Make sure that the C and C++ enumerations match
-    static_assert(static_cast<int>(PJ_WKT2_2015) ==
-                      static_cast<int>(WKTFormatter::Convention::WKT2_2015),
-                  "");
-    static_assert(
-        static_cast<int>(PJ_WKT2_2015_SIMPLIFIED) ==
-            static_cast<int>(WKTFormatter::Convention::WKT2_2015_SIMPLIFIED),
-        "");
-    static_assert(static_cast<int>(PJ_WKT2_2018) ==
-                      static_cast<int>(WKTFormatter::Convention::WKT2_2018),
-                  "");
-    static_assert(
-        static_cast<int>(PJ_WKT2_2018_SIMPLIFIED) ==
-            static_cast<int>(WKTFormatter::Convention::WKT2_2018_SIMPLIFIED),
-        "");
-    static_assert(static_cast<int>(PJ_WKT1_GDAL) ==
-                      static_cast<int>(WKTFormatter::Convention::WKT1_GDAL),
-                  "");
-    static_assert(static_cast<int>(PJ_WKT1_ESRI) ==
-                      static_cast<int>(WKTFormatter::Convention::WKT1_ESRI),
-                  "");
-    // Make sure we enumerate all values. If adding a new value, as we
-    // don't have a default clause, the compiler will warn.
-    switch (type) {
-    case PJ_WKT2_2015:
-    case PJ_WKT2_2015_SIMPLIFIED:
-    case PJ_WKT2_2018:
-    case PJ_WKT2_2018_SIMPLIFIED:
-    case PJ_WKT1_GDAL:
-    case PJ_WKT1_ESRI:
-        break;
-    }
-    const WKTFormatter::Convention convention =
-        static_cast<WKTFormatter::Convention>(type);
+    const auto convention = ([](PJ_WKT_TYPE l_type) {
+        switch (l_type) {
+        case PJ_WKT2_2015:
+            return WKTFormatter::Convention::WKT2_2015;
+        case PJ_WKT2_2015_SIMPLIFIED:
+            return WKTFormatter::Convention::WKT2_2015_SIMPLIFIED;
+        case PJ_WKT2_2018:
+            return WKTFormatter::Convention::WKT2_2018;
+        case PJ_WKT2_2018_SIMPLIFIED:
+            return WKTFormatter::Convention::WKT2_2018_SIMPLIFIED;
+        case PJ_WKT1_GDAL:
+            return WKTFormatter::Convention::WKT1_GDAL;
+        case PJ_WKT1_ESRI:
+            break;
+        }
+        return WKTFormatter::Convention::WKT1_ESRI;
+    })(type);
+
     try {
         auto dbContext = getDBcontextNoException(ctx, __FUNCTION__);
         auto formatter = WKTFormatter::create(convention, dbContext);
@@ -1365,7 +1342,7 @@ static const GeodeticCRS *extractGeodeticCRS(PJ_CONTEXT *ctx, const PJ *crs,
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type CRS (must not be NULL)
+ * @param crs Object of type CRS (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error.
  */
@@ -1389,7 +1366,7 @@ PJ *proj_crs_get_geodetic_crs(PJ_CONTEXT *ctx, const PJ *crs) {
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type CRS (must not be NULL)
+ * @param crs Object of type CRS (must not be NULL)
  * @param index Index of the CRS component (typically 0 = horizontal, 1 =
  * vertical)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
@@ -1471,7 +1448,7 @@ PJ *proj_crs_create_bound_crs(PJ_CONTEXT *ctx, const PJ *base_crs,
  * osgeo::proj::crs::CRS::createBoundCRSToWGS84IfPossible()
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type CRS (must not be NULL)
+ * @param crs Object of type CRS (must not be NULL)
  * @param options null-terminated list of options, or NULL. Currently
  * supported options are:
  * <ul>
@@ -1530,7 +1507,7 @@ PJ *proj_crs_create_bound_crs_to_WGS84(PJ_CONTEXT *ctx, const PJ *crs,
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param obj Objet of type CRS or GeodeticReferenceFrame (must not be NULL)
+ * @param obj Object of type CRS or GeodeticReferenceFrame (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error.
  */
@@ -1562,7 +1539,7 @@ PJ *proj_get_ellipsoid(PJ_CONTEXT *ctx, const PJ *obj) {
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type CRS (must not be NULL)
+ * @param crs Object of type CRS (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error.
  */
@@ -1645,7 +1622,7 @@ int proj_ellipsoid_get_parameters(PJ_CONTEXT *ctx, const PJ *ellipsoid,
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param obj Objet of type CRS or GeodeticReferenceFrame (must not be NULL)
+ * @param obj Object of type CRS or GeodeticReferenceFrame (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error.
  */
@@ -1720,7 +1697,7 @@ int proj_prime_meridian_get_parameters(PJ_CONTEXT *ctx,
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param obj Objet of type BoundCRS or CoordinateOperation (must not be NULL)
+ * @param obj Object of type BoundCRS or CoordinateOperation (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error, or missing source CRS.
  */
@@ -1763,7 +1740,7 @@ PJ *proj_get_source_crs(PJ_CONTEXT *ctx, const PJ *obj) {
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param obj Objet of type BoundCRS or CoordinateOperation (must not be NULL)
+ * @param obj Object of type BoundCRS or CoordinateOperation (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error, or missing target CRS.
  */
@@ -2167,7 +2144,7 @@ void proj_crs_info_list_destroy(PROJ_CRS_INFO **list) {
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type DerivedCRS or BoundCRSs (must not be NULL)
+ * @param crs Object of type DerivedCRS or BoundCRSs (must not be NULL)
  * @return Object of type SingleOperation that must be unreferenced with
  * proj_destroy(), or NULL in case of error.
  */
@@ -2198,7 +2175,7 @@ PJ *proj_crs_get_coordoperation(PJ_CONTEXT *ctx, const PJ *crs) {
 /** \brief Return information on the operation method of the SingleOperation.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type SingleOperation (typically a Conversion
+ * @param coordoperation Object of type SingleOperation (typically a Conversion
  * or Transformation) (must not be NULL)
  * @param out_method_name Pointer to a string value to store the method
  * (projection) name. or NULL
@@ -5729,7 +5706,7 @@ PJ *proj_create_conversion_equal_earth(PJ_CONTEXT *ctx, double center_long,
  * available.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type CoordinateOperation or derived classes
+ * @param coordoperation Object of type CoordinateOperation or derived classes
  * (must not be NULL)
  * @return TRUE or FALSE.
  */
@@ -5764,7 +5741,7 @@ int proj_coordoperation_is_instantiable(PJ_CONTEXT *ctx,
  * compared to more accurate transformations.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type CoordinateOperation or derived classes
+ * @param coordoperation Object of type CoordinateOperation or derived classes
  * (must not be NULL)
  * @return TRUE or FALSE.
  */
@@ -5787,7 +5764,7 @@ int proj_coordoperation_has_ballpark_transformation(PJ_CONTEXT *ctx,
 /** \brief Return the number of parameters of a SingleOperation
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type SingleOperation or derived classes
+ * @param coordoperation Object of type SingleOperation or derived classes
  * (must not be NULL)
  */
 
@@ -5809,7 +5786,7 @@ int proj_coordoperation_get_param_count(PJ_CONTEXT *ctx,
 /** \brief Return the index of a parameter of a SingleOperation
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type SingleOperation or derived classes
+ * @param coordoperation Object of type SingleOperation or derived classes
  * (must not be NULL)
  * @param name Parameter name. Must not be NULL
  * @return index (>=0), or -1 in case of error.
@@ -5842,7 +5819,7 @@ int proj_coordoperation_get_param_index(PJ_CONTEXT *ctx,
 /** \brief Return a parameter of a SingleOperation
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type SingleOperation or derived classes
+ * @param coordoperation Object of type SingleOperation or derived classes
  * (must not be NULL)
  * @param index Parameter index.
  * @param out_name Pointer to a string value to store the parameter name. or
@@ -5982,10 +5959,14 @@ int proj_coordoperation_get_param(
  * values.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type Transformation, that can be represented
+ * @param coordoperation Object of type Transformation, that can be represented
  * as a WKT1 TOWGS84 node (must not be NULL)
  * @param out_values Pointer to an array of value_count double values.
- * @param value_count Size of out_values array.
+ * @param value_count Size of out_values array. The suggested size is 7 to get
+ * translation, rotation and scale difference parameters. Rotation and scale
+ * difference terms might be zero if the transformation only includes
+ * translation
+ * parameters. In that case, value_count could be set to 3.
  * @param emit_error_if_incompatible Boolean to inicate if an error must be
  * logged if coordoperation is not compatible with a WKT1 TOWGS84
  * representation.
@@ -6027,7 +6008,7 @@ int proj_coordoperation_get_towgs84_values(PJ_CONTEXT *ctx,
 /** \brief Return the number of grids used by a CoordinateOperation
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type CoordinateOperation or derived classes
+ * @param coordoperation Object of type CoordinateOperation or derived classes
  * (must not be NULL)
  */
 
@@ -6063,7 +6044,7 @@ int proj_coordoperation_get_grid_used_count(PJ_CONTEXT *ctx,
 /** \brief Return a parameter of a SingleOperation
  *
  * @param ctx PROJ context, or NULL for default context
- * @param coordoperation Objet of type SingleOperation or derived classes
+ * @param coordoperation Object of type SingleOperation or derived classes
  * (must not be NULL)
  * @param index Parameter index.
  * @param out_short_name Pointer to a string value to store the grid short name.
@@ -6538,7 +6519,7 @@ proj_create_operations(PJ_CONTEXT *ctx, const PJ *source_crs,
 
 /** \brief Return the number of objects in the result set
  *
- * @param result Objet of type PJ_OBJ_LIST (must not be NULL)
+ * @param result Object of type PJ_OBJ_LIST (must not be NULL)
  */
 int proj_list_get_count(const PJ_OBJ_LIST *result) {
     assert(result);
@@ -6554,7 +6535,7 @@ int proj_list_get_count(const PJ_OBJ_LIST *result) {
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param result Objet of type PJ_OBJ_LIST (must not be NULL)
+ * @param result Object of type PJ_OBJ_LIST (must not be NULL)
  * @param index Index
  * @return a new object that must be unreferenced with proj_destroy(),
  * or nullptr in case of error.
@@ -6620,7 +6601,7 @@ double proj_coordoperation_get_accuracy(PJ_CONTEXT *ctx,
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type SingleCRS (must not be NULL)
+ * @param crs Object of type SingleCRS (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error (or if there is no datum)
  */
@@ -6648,7 +6629,7 @@ PJ *proj_crs_get_datum(PJ_CONTEXT *ctx, const PJ *crs) {
  * It should be used by at most one thread at a time.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param crs Objet of type SingleCRS (must not be NULL)
+ * @param crs Object of type SingleCRS (must not be NULL)
  * @return Object that must be unreferenced with proj_destroy(), or NULL
  * in case of error.
  */
@@ -6668,7 +6649,7 @@ PJ *proj_crs_get_coordinate_system(PJ_CONTEXT *ctx, const PJ *crs) {
 /** \brief Returns the type of the coordinate system.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param cs Objet of type CoordinateSystem (must not be NULL)
+ * @param cs Object of type CoordinateSystem (must not be NULL)
  * @return type, or PJ_CS_TYPE_UNKNOWN in case of error.
  */
 PJ_COORDINATE_SYSTEM_TYPE proj_cs_get_type(PJ_CONTEXT *ctx, const PJ *cs) {
@@ -6714,7 +6695,7 @@ PJ_COORDINATE_SYSTEM_TYPE proj_cs_get_type(PJ_CONTEXT *ctx, const PJ *cs) {
 /** \brief Returns the number of axis of the coordinate system.
  *
  * @param ctx PROJ context, or NULL for default context
- * @param cs Objet of type CoordinateSystem (must not be NULL)
+ * @param cs Object of type CoordinateSystem (must not be NULL)
  * @return number of axis, or -1 in case of error.
  */
 int proj_cs_get_axis_count(PJ_CONTEXT *ctx, const PJ *cs) {
@@ -6733,7 +6714,7 @@ int proj_cs_get_axis_count(PJ_CONTEXT *ctx, const PJ *cs) {
 /** \brief Returns information on an axis
  *
  * @param ctx PROJ context, or NULL for default context
- * @param cs Objet of type CoordinateSystem (must not be NULL)
+ * @param cs Object of type CoordinateSystem (must not be NULL)
  * @param index Index of the coordinate system (between 0 and
  * proj_cs_get_axis_count() - 1)
  * @param out_name Pointer to a string value to store the axis name. or NULL
@@ -6793,4 +6774,36 @@ int proj_cs_get_axis_info(PJ_CONTEXT *ctx, const PJ *cs, int index,
         *out_unit_code = axis->unit().code().c_str();
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+
+/** \brief Returns a PJ* object whose axis order is the one expected for
+ * visualization purposes.
+ *
+ * The input object must be a coordinate operation, that has been created with
+ * proj_create_crs_to_crs().
+ * If the axis order of its source or target CRS is northing,easting, then an
+ * axis swap operation will be inserted.
+ *
+ * @param ctx PROJ context, or NULL for default context
+ * @param obj Object of type CoordinateOperation,
+ * created with proj_create_crs_to_crs() (must not be NULL)
+ * @return a new PJ* object to free with proj_destroy() in case of success, or
+ * nullptr in case of error
+ */
+PJ *proj_normalize_for_visualization(PJ_CONTEXT *ctx, const PJ *obj) {
+    auto co = dynamic_cast<const CoordinateOperation *>(obj->iso_obj.get());
+    if (!co) {
+        proj_log_error(ctx, __FUNCTION__, "Object is not a CoordinateOperation "
+                                          "created with "
+                                          "proj_create_crs_to_crs");
+        return nullptr;
+    }
+    try {
+        return pj_obj_create(ctx, co->normalizeForVisualization());
+    } catch (const std::exception &e) {
+        proj_log_debug(ctx, __FUNCTION__, e.what());
+        return nullptr;
+    }
 }

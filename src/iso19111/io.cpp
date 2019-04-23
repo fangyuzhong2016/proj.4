@@ -141,6 +141,7 @@ struct WKTFormatter::Private {
     std::vector<bool> stackHasChild_{};
     std::vector<bool> stackHasId_{false};
     std::vector<bool> stackEmptyKeyword_{};
+    std::vector<bool> stackDisableUsage_{};
     std::vector<bool> outputUnitStack_{true};
     std::vector<bool> outputIdStack_{true};
     std::vector<UnitOfMeasureNNPtr> axisLinearUnitStack_{
@@ -272,6 +273,11 @@ const std::string &WKTFormatter::toString() const {
     if (d->outputUnitStack_.size() != 1)
         throw FormattingException(
             "Unbalanced pushOutputUnit() / popOutputUnit()");
+    if (d->stackHasId_.size() != 1)
+        throw FormattingException("Unbalanced pushHasId() / popHasId()");
+    if (!d->stackDisableUsage_.empty())
+        throw FormattingException(
+            "Unbalanced pushDisableUsage() / popDisableUsage()");
 
     return d->result_;
 }
@@ -556,6 +562,28 @@ bool WKTFormatter::outputId() const {
 
 // ---------------------------------------------------------------------------
 
+void WKTFormatter::pushHasId(bool hasId) { d->stackHasId_.push_back(hasId); }
+
+// ---------------------------------------------------------------------------
+
+void WKTFormatter::popHasId() { d->stackHasId_.pop_back(); }
+
+// ---------------------------------------------------------------------------
+
+void WKTFormatter::pushDisableUsage() { d->stackDisableUsage_.push_back(true); }
+
+// ---------------------------------------------------------------------------
+
+void WKTFormatter::popDisableUsage() { d->stackDisableUsage_.pop_back(); }
+
+// ---------------------------------------------------------------------------
+
+bool WKTFormatter::outputUsage() const {
+    return outputId() && d->stackDisableUsage_.empty();
+}
+
+// ---------------------------------------------------------------------------
+
 void WKTFormatter::pushAxisLinearUnit(const UnitOfMeasureNNPtr &unit) {
     d->axisLinearUnitStack_.push_back(unit);
 }
@@ -630,6 +658,18 @@ bool WKTFormatter::forceUNITKeyword() const {
 
 bool WKTFormatter::primeMeridianInDegree() const {
     return d->params_.primeMeridianInDegree_;
+}
+
+// ---------------------------------------------------------------------------
+
+bool WKTFormatter::idOnTopLevelOnly() const {
+    return d->params_.idOnTopLevelOnly_;
+}
+
+// ---------------------------------------------------------------------------
+
+bool WKTFormatter::topLevelHasId() const {
+    return d->stackHasId_.size() >= 2 && d->stackHasId_[1];
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,7 +1226,7 @@ struct WKTParser::Private {
     buildPrimeMeridian(const WKTNodeNNPtr &node,
                        const UnitOfMeasure &defaultAngularUnit);
 
-    optional<std::string> getAnchor(const WKTNodeNNPtr &node);
+    static optional<std::string> getAnchor(const WKTNodeNNPtr &node);
 
     static void parseDynamic(const WKTNodeNNPtr &dynamicNode,
                              double &frameReferenceEpoch,
@@ -1578,6 +1618,17 @@ PropertyMap &WKTParser::Private::buildProperties(const WKTNodeNNPtr &node,
         if (objectDomain) {
             properties->set(ObjectUsage::OBJECT_DOMAIN_KEY,
                             NN_NO_CHECK(objectDomain));
+        }
+    }
+
+    auto &versionNode = nodeP->lookForChild(WKTConstants::VERSION);
+    if (!isNull(versionNode)) {
+        const auto &versionChildren = versionNode->GP()->children();
+        if (versionChildren.size() == 1) {
+            properties->set(CoordinateOperation::OPERATION_VERSION_KEY,
+                            stripQuotes(versionChildren[0]));
+        } else {
+            ThrowNotRequiredNumberOfChildren(versionNode->GP()->value());
         }
     }
 
@@ -3117,7 +3168,6 @@ ConversionNNPtr WKTParser::Private::buildProjectionFromESRI(
     }
 
     const auto *wkt2_mapping = getMapping(esriMapping->wkt2_name);
-    assert(wkt2_mapping);
     if (ci_equal(esriProjectionName, "Stereographic")) {
         try {
             if (std::fabs(io::asDouble(
@@ -3128,6 +3178,7 @@ ConversionNNPtr WKTParser::Private::buildProjectionFromESRI(
         } catch (const std::exception &) {
         }
     }
+    assert(wkt2_mapping);
 
     PropertyMap propertiesMethod;
     propertiesMethod.set(IdentifiedObject::NAME_KEY, wkt2_mapping->wkt2_name);
@@ -4455,9 +4506,11 @@ static BaseObjectNNPtr createFromUserInput(const std::string &text,
  * <li>WKT string</li>
  * <li>PROJ string</li>
  * <li>database code, prefixed by its authoriy. e.g. "EPSG:4326"</li>
- * <li>URN. e.g. "urn:ogc:def:crs:EPSG::4326",
- *     "urn:ogc:def:coordinateOperation:EPSG::1671"</li>
- * <li>an objet name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
+ * <li>OGC URN. e.g. "urn:ogc:def:crs:EPSG::4326",
+ *     "urn:ogc:def:coordinateOperation:EPSG::1671",
+ *     "urn:ogc:def:ellipsoid:EPSG::7001"
+ *     or "urn:ogc:def:datum:EPSG::6326"</li>
+ * <li>an Object name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
  *     uniqueness is not guaranteed, the function may apply heuristics to
  *     determine the appropriate best match.</li>
  * </ul>
@@ -4489,9 +4542,11 @@ BaseObjectNNPtr createFromUserInput(const std::string &text,
  * <li>WKT string</li>
  * <li>PROJ string</li>
  * <li>database code, prefixed by its authoriy. e.g. "EPSG:4326"</li>
- * <li>URN. e.g. "urn:ogc:def:crs:EPSG::4326",
- *     "urn:ogc:def:coordinateOperation:EPSG::1671"</li>
- * <li>an objet name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
+ * <li>OGC URN. e.g. "urn:ogc:def:crs:EPSG::4326",
+ *     "urn:ogc:def:coordinateOperation:EPSG::1671",
+ *     "urn:ogc:def:ellipsoid:EPSG::7001"
+ *     or "urn:ogc:def:datum:EPSG::6326"</li>
+ * <li>an Object name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
  *     uniqueness is not guaranteed, the function may apply heuristics to
  *     determine the appropriate best match.</li>
  * </ul>
@@ -5049,7 +5104,7 @@ const std::string &PROJStringFormatter::toString() const {
                     first.paramValues[1].keyEquals("z_in") &&
                     first.paramValues[2].keyEquals("xy_out") &&
                     first.paramValues[3].keyEquals("z_out") &&
-                    second.paramValues[0].keyEquals("xy_in=") &&
+                    second.paramValues[0].keyEquals("xy_in") &&
                     second.paramValues[1].keyEquals("xy_out") &&
                     first.paramValues[0].value == second.paramValues[1].value &&
                     first.paramValues[2].value == second.paramValues[0].value) {
@@ -5072,6 +5127,22 @@ const std::string &PROJStringFormatter::toString() const {
             }
             if (changeDone) {
                 break;
+            }
+
+            // unitconvert (1), axisswap order=2,1, unitconvert(2)  ==>
+            // axisswap order=2,1, unitconvert (1), unitconvert(2) which
+            // will get further optimized by previous case
+            if (i + 1 < d->steps_.size() && prevStep.name == "unitconvert" &&
+                curStep.name == "axisswap" && curStepParamCount == 1 &&
+                curStep.paramValues[0].equals("order", "2,1")) {
+                auto iterNext = iterCur;
+                ++iterNext;
+                auto &nextStep = *iterNext;
+                if (nextStep.name == "unitconvert") {
+                    std::swap(*iterPrev, *iterCur);
+                    changeDone = true;
+                    break;
+                }
             }
 
             // axisswap order=2,1 followed by itself is a no-op
@@ -5271,6 +5342,11 @@ const std::string &PROJStringFormatter::toString() const {
             }
         }
     }
+
+    if (d->result_.empty()) {
+        d->appendToResult("+proj=noop");
+    }
+
     return d->result_;
 }
 
@@ -6015,6 +6091,9 @@ static UnitOfMeasure _buildUnit(const LinearUnitDesc *unitsMatch) {
 
 static UnitOfMeasure _buildUnit(double to_meter_value) {
     // TODO: look-up in EPSG catalog
+    if (to_meter_value == 0) {
+        throw ParsingException("invalid unit value");
+    }
     return UnitOfMeasure("unknown", to_meter_value,
                          UnitOfMeasure::Type::LINEAR);
 }
@@ -6529,9 +6608,9 @@ PROJStringParser::Private::processAxisSwap(Step &step,
                                ? AxisDirection::NORTH
                                : (axisType == AxisType::NORTH_POLE)
                                      ? AxisDirection::SOUTH
-                                     : (axisType == AxisType::SOUTH_POLE)
-                                           ? AxisDirection::NORTH
-                                           : AxisDirection::NORTH;
+                                     /*: (axisType == AxisType::SOUTH_POLE)
+                                           ? AxisDirection::NORTH*/
+                                     : AxisDirection::NORTH;
     CoordinateSystemAxisNNPtr north = createAxis(
         northName, northAbbev, northDir, unit,
         (!isGeographic && axisType == AxisType::NORTH_POLE)
@@ -6663,6 +6742,9 @@ static double getNumericValue(const std::string &paramValue,
 }
 
 // ---------------------------------------------------------------------------
+namespace {
+template <class T> inline void ignoreRetVal(T) {}
+}
 
 GeographicCRSNNPtr
 PROJStringParser::Private::buildGeographicCRS(int iStep, int iUnitConvert,
@@ -6675,7 +6757,7 @@ PROJStringParser::Private::buildGeographicCRS(int iStep, int iUnitConvert,
 
     // units=m is often found in the wild.
     // No need to create a extension string for this
-    hasParamValue(step, "units");
+    ignoreRetVal(hasParamValue(step, "units"));
 
     auto datum = buildDatum(step, title);
 
@@ -6707,7 +6789,7 @@ PROJStringParser::Private::buildGeocentricCRS(int iStep, int iUnitConvert) {
 
     auto datum = buildDatum(step, title);
 
-    UnitOfMeasure unit = UnitOfMeasure::METRE;
+    UnitOfMeasure unit = buildUnit(step, "units", "");
     if (iUnitConvert >= 0) {
         auto &stepUnitConvert = steps_[iUnitConvert];
         const std::string *xy_in = &getParamValue(stepUnitConvert, "xy_in");

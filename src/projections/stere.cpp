@@ -55,11 +55,18 @@ static PJ_XY e_forward (PJ_LP lp, PJ *P) {          /* Ellipsoidal, forward */
     }
 
     switch (Q->mode) {
-    case OBLIQ:
-        A = Q->akm1 / (Q->cosX1 * (1. + Q->sinX1 * sinX +
-           Q->cosX1 * cosX * coslam));
+    case OBLIQ: {
+        const double denom = Q->cosX1 * (1. + Q->sinX1 * sinX +
+           Q->cosX1 * cosX * coslam);
+        if( denom == 0 ) {
+            proj_errno_set(P, PJD_ERR_TOLERANCE_CONDITION);
+            return proj_coord_error().xy;
+        }
+        A = Q->akm1 / denom;
         xy.y = A * (Q->cosX1 * sinX - Q->sinX1 * cosX * coslam);
-        goto xmul; /* but why not just  xy.x = A * cosX; break;  ? */
+        xy.x = A * cosX;
+        break;
+    }
 
     case EQUIT:
         /* avoid zero division */
@@ -69,7 +76,6 @@ static PJ_XY e_forward (PJ_LP lp, PJ *P) {          /* Ellipsoidal, forward */
             A = Q->akm1 / (1. + cosX * coslam);
             xy.y = A * sinX;
         }
-xmul:
         xy.x = A * cosX;
         break;
 
@@ -165,7 +171,7 @@ static PJ_LP e_inverse (PJ_XY xy, PJ *P) {          /* Ellipsoidal, inverse */
         break;
     }
 
-    for (i = NITER;  i--;  phi_l = lp.phi) {
+    for (i = NITER;  i--; ) {
         sinphi = P->e * sin(phi_l);
         lp.phi = 2. * atan (tp * pow ((1.+sinphi)/(1.-sinphi), halfe)) - halfpi;
         if (fabs (phi_l - lp.phi) < CONV) {
@@ -174,6 +180,7 @@ static PJ_LP e_inverse (PJ_XY xy, PJ *P) {          /* Ellipsoidal, inverse */
             lp.lam = (xy.x == 0. && xy.y == 0.) ? 0. : atan2 (xy.x, xy.y);
             return lp;
         }
+        phi_l = lp.phi;
     }
 
     proj_errno_set(P, PJD_ERR_TOLERANCE_CONDITION);

@@ -218,6 +218,11 @@ TEST(operation, SingleOperation) {
     EXPECT_TRUE(sop1->isEquivalentTo(sop1.get()));
     EXPECT_FALSE(sop1->isEquivalentTo(createUnrelatedObject().get()));
 
+    EXPECT_TRUE(
+        sop1->isEquivalentTo(sop1->CoordinateOperation::shallowClone().get()));
+    EXPECT_TRUE(sop1->inverse()->isEquivalentTo(
+        sop1->inverse()->CoordinateOperation::shallowClone().get()));
+
     auto sop2 = Transformation::create(
         PropertyMap(), nn_static_pointer_cast<CRS>(GeographicCRS::EPSG_4326),
         nn_static_pointer_cast<CRS>(GeographicCRS::EPSG_4807),
@@ -442,7 +447,6 @@ TEST(operation, concatenated_operation) {
     {
         auto formatter =
             WKTFormatter::create(WKTFormatter::Convention::WKT2_2018);
-        formatter->setOutputId(false);
         src_wkt = GeographicCRS::EPSG_4326->exportToWKT(formatter.get());
     }
 
@@ -450,7 +454,6 @@ TEST(operation, concatenated_operation) {
     {
         auto formatter =
             WKTFormatter::create(WKTFormatter::Convention::WKT2_2018);
-        formatter->setOutputId(false);
         dst_wkt = GeographicCRS::EPSG_4979->exportToWKT(formatter.get());
     }
 
@@ -458,7 +461,6 @@ TEST(operation, concatenated_operation) {
     {
         auto formatter =
             WKTFormatter::create(WKTFormatter::Convention::WKT2_2018);
-        formatter->setOutputId(false);
         step1_wkt = transf_1->exportToWKT(formatter.get());
     }
 
@@ -466,7 +468,6 @@ TEST(operation, concatenated_operation) {
     {
         auto formatter =
             WKTFormatter::create(WKTFormatter::Convention::WKT2_2018);
-        formatter->setOutputId(false);
         step2_wkt = transf_2->exportToWKT(formatter.get());
     }
 
@@ -514,6 +515,8 @@ TEST(operation, concatenated_operation) {
 
     EXPECT_TRUE(concat->isEquivalentTo(concat.get()));
     EXPECT_FALSE(concat->isEquivalentTo(createUnrelatedObject().get()));
+    EXPECT_TRUE(concat->isEquivalentTo(
+        concat->CoordinateOperation::shallowClone().get()));
     EXPECT_FALSE(
         ConcatenatedOperation::create(PropertyMap(),
                                       std::vector<CoordinateOperationNNPtr>{
@@ -640,7 +643,7 @@ TEST(operation, transformation_createGeocentricTranslations_null) {
 
     EXPECT_EQ(transf->inverse()->exportToPROJString(
                   PROJStringFormatter::create().get()),
-              "");
+              "+proj=noop");
 }
 
 // ---------------------------------------------------------------------------
@@ -960,7 +963,7 @@ TEST(operation, transformation_successive_helmert_noop) {
         std::vector<PositionalAccuracyNNPtr>{});
 
     EXPECT_EQ(concat->exportToPROJString(PROJStringFormatter::create().get()),
-              "");
+              "+proj=noop");
 }
 
 // ---------------------------------------------------------------------------
@@ -4054,6 +4057,11 @@ TEST(operation, conversion_inverse) {
 
     EXPECT_TRUE(inv->isEquivalentTo(inv.get()));
     EXPECT_FALSE(inv->isEquivalentTo(createUnrelatedObject().get()));
+
+    EXPECT_TRUE(
+        conv->isEquivalentTo(conv->CoordinateOperation::shallowClone().get()));
+    EXPECT_TRUE(
+        inv->isEquivalentTo(inv->CoordinateOperation::shallowClone().get()));
 }
 
 // ---------------------------------------------------------------------------
@@ -4135,7 +4143,7 @@ TEST(operation, PROJ_based_empty) {
         SingleOperation::createPROJBased(PropertyMap(), "", nullptr, nullptr);
 
     EXPECT_EQ(conv->exportToPROJString(PROJStringFormatter::create().get()),
-              "");
+              "+proj=noop");
 
     EXPECT_EQ(conv->exportToWKT(WKTFormatter::create().get()),
               "CONVERSION[\"PROJ-based coordinate operation\",\n"
@@ -4148,7 +4156,7 @@ TEST(operation, PROJ_based_empty) {
 
     EXPECT_EQ(conv->inverse()->exportToPROJString(
                   PROJStringFormatter::create().get()),
-              "");
+              "+proj=noop");
 }
 
 // ---------------------------------------------------------------------------
@@ -4332,7 +4340,7 @@ TEST(operation, geogCRS_to_geogCRS_context_filter_bbox) {
         ASSERT_EQ(list.size(), 1U);
         EXPECT_EQ(
             list[0]->exportToPROJString(PROJStringFormatter::create().get()),
-            "");
+            "+proj=noop");
     }
 }
 
@@ -4348,7 +4356,7 @@ TEST(operation, geogCRS_to_geogCRS_context_incompatible_area) {
         ctxt);
     ASSERT_EQ(list.size(), 1U);
     EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
-              "");
+              "+proj=noop");
 }
 
 // ---------------------------------------------------------------------------
@@ -4508,7 +4516,8 @@ TEST(operation, geogCRS_to_geogCRS_noop) {
         GeographicCRS::EPSG_4326, GeographicCRS::EPSG_4326);
     ASSERT_TRUE(op != nullptr);
     EXPECT_EQ(op->nameStr(), "Null geographic offset from WGS 84 to WGS 84");
-    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()), "");
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=noop");
     EXPECT_EQ(op->inverse()->nameStr(), op->nameStr());
 }
 
@@ -4655,7 +4664,7 @@ TEST(operation, geogCRS_to_geogCRS_CH1903_to_CH1903plus_context) {
     EXPECT_EQ(list[0]->nameStr(),
               "CH1903 to ETRS89 (1) + Inverse of CH1903+ to ETRS89 (1)");
     EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
-              "");
+              "+proj=noop");
 
     EXPECT_EQ(list[1]->nameStr(), "CH1903 to CH1903+ (1)");
     EXPECT_EQ(list[1]->exportToPROJString(PROJStringFormatter::create().get()),
@@ -4750,6 +4759,52 @@ TEST(operation, geogCRS_to_geogCRS_3D) {
 
 // ---------------------------------------------------------------------------
 
+TEST(operation, geogCRS_without_id_to_geogCRS_3D_context) {
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto src =
+        authFactory->createCoordinateReferenceSystem("4289"); // Amersfoort
+    auto dst =
+        authFactory->createCoordinateReferenceSystem("4937"); // ETRS89 3D
+    auto list =
+        CoordinateOperationFactory::create()->createOperations(src, dst, ctxt);
+    ASSERT_GE(list.size(), 1U);
+    auto wkt2 = "GEOGCRS[\"unnamed\",\n"
+                "    DATUM[\"Amersfoort\",\n"
+                "        ELLIPSOID[\"Bessel 1841\",6377397.155,299.1528128,\n"
+                "            LENGTHUNIT[\"metre\",1]]],\n"
+                "    PRIMEM[\"Greenwich\",0,\n"
+                "        ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+                "    CS[ellipsoidal,2],\n"
+                "        AXIS[\"geodetic latitude (Lat)\",north,\n"
+                "            ORDER[1],\n"
+                "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+                "        AXIS[\"geodetic longitude (Lon)\",east,\n"
+                "            ORDER[2],\n"
+                "            ANGLEUNIT[\"degree\",0.0174532925199433]],"
+                "    USAGE[\n"
+                "        SCOPE[\"unknown\"],\n"
+                "        AREA[\"Netherlands - onshore\"],\n"
+                "        BBOX[50.75,3.2,53.7,7.22]]]\n";
+
+    auto obj = WKTParser().createFromWKT(wkt2);
+    auto src_from_wkt2 = nn_dynamic_pointer_cast<CRS>(obj);
+    ASSERT_TRUE(src_from_wkt2 != nullptr);
+    auto list2 = CoordinateOperationFactory::create()->createOperations(
+        NN_NO_CHECK(src_from_wkt2), dst, ctxt);
+    ASSERT_GE(list.size(), list2.size());
+    for (size_t i = 0; i < list.size(); i++) {
+        const auto &op = list[i];
+        const auto &op2 = list2[i];
+        EXPECT_TRUE(
+            op->isEquivalentTo(op2.get(), IComparable::Criterion::EQUIVALENT))
+            << op->nameStr() << " " << op2->nameStr();
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 TEST(operation, geocentricCRS_to_geogCRS_same_datum) {
 
     auto op = CoordinateOperationFactory::create()->createOperation(
@@ -4803,7 +4858,8 @@ TEST(operation, geocentricCRS_to_geocentricCRS_noop) {
     ASSERT_TRUE(op != nullptr);
     EXPECT_EQ(op->nameStr(),
               "Ballpark geocentric translation from WGS 84 to WGS 84");
-    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()), "");
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=noop");
     EXPECT_EQ(op->inverse()->nameStr(), op->nameStr());
 }
 
@@ -4894,6 +4950,24 @@ TEST(operation, geogCRS_geocentricCRS_same_datum_to_context) {
               "+proj=pipeline +step +inv +proj=cart +ellps=WGS84 +step "
               "+proj=unitconvert +xy_in=rad +xy_out=deg +step +proj=axisswap "
               "+order=2,1");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation,
+     geog2D_to_geog3D_same_datum_but_with_potential_other_pivot_context) {
+    // Check that when going from geog2D to geog3D of same datum, we don't
+    // try to go through a WGS84 pivot...
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto list = CoordinateOperationFactory::create()->createOperations(
+        authFactory->createCoordinateReferenceSystem("5365"), // CR 05 2D
+        authFactory->createCoordinateReferenceSystem("5364"), // CR 05 3D
+        ctxt);
+    ASSERT_EQ(list.size(), 1U);
+    EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=noop");
 }
 
 // ---------------------------------------------------------------------------
@@ -5176,6 +5250,50 @@ TEST(operation, projCRS_to_geogCRS) {
 
 // ---------------------------------------------------------------------------
 
+TEST(operation, projCRS_no_id_to_geogCRS_context) {
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto src = authFactory->createCoordinateReferenceSystem(
+        "28992"); // Amersfoort / RD New
+    auto dst =
+        authFactory->createCoordinateReferenceSystem("4258"); // ETRS89 2D
+    auto list =
+        CoordinateOperationFactory::create()->createOperations(src, dst, ctxt);
+    ASSERT_GE(list.size(), 1U);
+    auto wkt2 =
+        "PROJCRS[\"unknown\",\n"
+        "    BASEGEOGCRS[\"Amersfoort\",\n"
+        "       DATUM[\"Amersfoort\",\n"
+        "            ELLIPSOID[\"Bessel 1841\",6377397.155,299.1528128]]],\n"
+        "    CONVERSION[\"unknown\",\n"
+        "        METHOD[\"Oblique Stereographic\"],\n"
+        "        PARAMETER[\"Latitude of natural origin\",52.1561605555556],\n"
+        "        PARAMETER[\"Longitude of natural origin\",5.38763888888889],\n"
+        "        PARAMETER[\"Scale factor at natural origin\",0.9999079],\n"
+        "        PARAMETER[\"False easting\",155000],\n"
+        "        PARAMETER[\"False northing\",463000]],\n"
+        "    CS[Cartesian,2],\n"
+        "        AXIS[\"(E)\",east],\n"
+        "        AXIS[\"(N)\",north],\n"
+        "    LENGTHUNIT[\"metre\",1],\n"
+        "    ID[\"EPSG\",28992]]";
+    auto obj = WKTParser().createFromWKT(wkt2);
+    auto src_from_wkt2 = nn_dynamic_pointer_cast<CRS>(obj);
+    ASSERT_TRUE(src_from_wkt2 != nullptr);
+    auto list2 = CoordinateOperationFactory::create()->createOperations(
+        NN_NO_CHECK(src_from_wkt2), dst, ctxt);
+    ASSERT_GE(list.size(), list2.size() - 1);
+    for (size_t i = 0; i < list.size(); i++) {
+        const auto &op = list[i];
+        const auto &op2 = list2[i];
+        EXPECT_TRUE(
+            op->isEquivalentTo(op2.get(), IComparable::Criterion::EQUIVALENT));
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 TEST(operation, projCRS_to_projCRS) {
 
     auto op = CoordinateOperationFactory::create()->createOperation(
@@ -5310,6 +5428,37 @@ TEST(operation, projCRS_to_projCRS_south_pole_inverted_axis) {
     ASSERT_EQ(list.size(), 1U);
     EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
               "+proj=axisswap +order=2,1");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, projCRS_to_projCRS_through_geog3D) {
+    // Check that when going from projCRS to projCRS, using
+    // geog2D-->geog3D-->geog3D-->geog2D we do not have issues with
+    // inconsistent CRS chaining, due to how we 'hack' a bit some intermediate
+    // steps
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto list = CoordinateOperationFactory::create()->createOperations(
+        authFactory->createCoordinateReferenceSystem("5367"), // CR05 / CRTM05
+        authFactory->createCoordinateReferenceSystem(
+            "8908"), // CR-SIRGAS / CRTM05
+        ctxt);
+    ASSERT_EQ(list.size(), 1U);
+    EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline +step +proj=axisswap +order=2,1 "
+              "+step +inv +proj=tmerc +lat_0=0 +lon_0=-84 +k=0.9999 "
+              "+x_0=500000 +y_0=0 +ellps=WGS84 "
+              "+step +proj=push +v_3 "
+              "+step +proj=cart +ellps=WGS84 "
+              "+step +proj=helmert +x=-0.16959 +y=0.35312 +z=0.51846 "
+              "+rx=-0.03385 +ry=0.16325 +rz=-0.03446 +s=0.03693 "
+              "+convention=position_vector "
+              "+step +inv +proj=cart +ellps=GRS80 "
+              "+step +proj=pop +v_3 "
+              "+step +proj=tmerc +lat_0=0 +lon_0=-84 +k=0.9999 +x_0=500000 "
+              "+y_0=0 +ellps=GRS80");
 }
 
 // ---------------------------------------------------------------------------
@@ -5485,6 +5634,38 @@ TEST(operation, boundCRS_of_geogCRS_to_projCRS) {
               "+z=3 +rx=4 +ry=5 +rz=6 +s=7 +convention=position_vector +step "
               "+inv +proj=cart +ellps=WGS84 +step +proj=pop +v_3 +step "
               "+proj=utm +zone=31 +ellps=WGS84");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, boundCRS_of_geogCRS_to_unrelated_geogCRS_context) {
+    auto src = BoundCRS::createFromTOWGS84(
+        GeographicCRS::EPSG_4807, std::vector<double>{1, 2, 3, 4, 5, 6, 7});
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    // ETRS89
+    auto dst = authFactory->createCoordinateReferenceSystem("4258");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto list =
+        CoordinateOperationFactory::create()->createOperations(src, dst, ctxt);
+    ASSERT_EQ(list.size(), 1U);
+    // Check with it is a concatenated operation, since it doesn't particularly
+    // show up in the PROJ string
+    EXPECT_TRUE(dynamic_cast<ConcatenatedOperation *>(list[0].get()) !=
+                nullptr);
+    EXPECT_EQ(list[0]->nameStr(), "Transformation from NTF (Paris) to WGS84 + "
+                                  "Inverse of ETRS89 to WGS 84 (1)");
+    EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline "
+              "+step +proj=axisswap +order=2,1 "
+              "+step +proj=unitconvert +xy_in=grad +xy_out=rad "
+              "+step +inv +proj=longlat +ellps=clrk80ign +pm=paris "
+              "+step +proj=push +v_3 +step +proj=cart +ellps=clrk80ign "
+              "+step +proj=helmert +x=1 +y=2 +z=3 +rx=4 +ry=5 +rz=6 +s=7 "
+              "+convention=position_vector "
+              "+step +inv +proj=cart +ellps=GRS80 +step +proj=pop +v_3 "
+              "+step +proj=unitconvert +xy_in=rad +xy_out=deg "
+              "+step +proj=axisswap +order=2,1");
 }
 
 // ---------------------------------------------------------------------------
@@ -5762,6 +5943,59 @@ TEST(operation, transformation_height_to_PROJ_string) {
 
 // ---------------------------------------------------------------------------
 
+TEST(operation, transformation_Geographic3D_to_GravityRelatedHeight_gtx) {
+    auto wkt =
+        "COORDINATEOPERATION[\"ETRS89 to NAP height (1)\",\n"
+        "    VERSION[\"RDNAP-Nld 2008\"],\n"
+        "    SOURCECRS[\n"
+        "        GEOGCRS[\"ETRS89\",\n"
+        "            DATUM[\"European Terrestrial Reference System 1989\",\n"
+        "                ELLIPSOID[\"GRS 1980\",6378137,298.257222101,\n"
+        "                    LENGTHUNIT[\"metre\",1]]],\n"
+        "            PRIMEM[\"Greenwich\",0,\n"
+        "                ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "            CS[ellipsoidal,3],\n"
+        "                AXIS[\"geodetic latitude (Lat)\",north,\n"
+        "                    ORDER[1],\n"
+        "                    ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "                AXIS[\"geodetic longitude (Lon)\",east,\n"
+        "                    ORDER[2],\n"
+        "                    ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "                AXIS[\"ellipsoidal height (h)\",up,\n"
+        "                    ORDER[3],\n"
+        "                    LENGTHUNIT[\"metre\",1]],\n"
+        "            ID[\"EPSG\",4937]]],\n"
+        "    TARGETCRS[\n"
+        "        VERTCRS[\"NAP height\",\n"
+        "            VDATUM[\"Normaal Amsterdams Peil\"],\n"
+        "            CS[vertical,1],\n"
+        "                AXIS[\"gravity-related height (H)\",up,\n"
+        "                    LENGTHUNIT[\"metre\",1]],\n"
+        "            ID[\"EPSG\",5709]]],\n"
+        "    METHOD[\"Geographic3D to GravityRelatedHeight (US .gtx)\",\n"
+        "        ID[\"EPSG\",9665]],\n"
+        "    PARAMETERFILE[\"Geoid (height correction) model "
+        "file\",\"naptrans2008.gtx\"],\n"
+        "    OPERATIONACCURACY[0.01],\n"
+        "    USAGE[\n"
+        "        SCOPE[\"unknown\"],\n"
+        "        AREA[\"Netherlands - onshore\"],\n"
+        "        BBOX[50.75,3.2,53.7,7.22]],\n"
+        "    ID[\"EPSG\",7001]]";
+    ;
+    auto obj = WKTParser().createFromWKT(wkt);
+    auto transf = nn_dynamic_pointer_cast<Transformation>(obj);
+    ASSERT_TRUE(transf != nullptr);
+
+    // Check that we correctly inverse files in the case of
+    // "Geographic3D to GravityRelatedHeight (US .gtx)"
+    EXPECT_EQ(transf->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline +step +inv +proj=vgridshift "
+              "+grids=naptrans2008.gtx +multiplier=1");
+}
+
+// ---------------------------------------------------------------------------
+
 TEST(operation, transformation_ntv2_to_PROJ_string) {
     auto transformation = Transformation::createNTv2(
         PropertyMap(), GeographicCRS::EPSG_4807, GeographicCRS::EPSG_4326,
@@ -6026,6 +6260,51 @@ TEST(operation, compoundCRS_with_boundProjCRS_and_boundVerticalCRS_to_geogCRS) {
 
 // ---------------------------------------------------------------------------
 
+TEST(operation, geocent_to_compoundCRS) {
+    auto objSrc = PROJStringParser().createFromPROJString(
+        "+proj=geocent +datum=WGS84 +units=m +type=crs");
+    auto src = nn_dynamic_pointer_cast<CRS>(objSrc);
+    ASSERT_TRUE(src != nullptr);
+    auto objDst = PROJStringParser().createFromPROJString(
+        "+proj=longlat +ellps=GRS67 +nadgrids=@foo.gsb +geoidgrids=@foo.gtx "
+        "+type=crs");
+    auto dst = nn_dynamic_pointer_cast<CRS>(objDst);
+    ASSERT_TRUE(dst != nullptr);
+    auto op = CoordinateOperationFactory::create()->createOperation(
+        NN_CHECK_ASSERT(src), NN_CHECK_ASSERT(dst));
+    ASSERT_TRUE(op != nullptr);
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline +step +inv +proj=cart +ellps=WGS84 +step +inv "
+              "+proj=vgridshift +grids=@foo.gtx +multiplier=1 +step +inv "
+              "+proj=hgridshift +grids=@foo.gsb +step +proj=unitconvert "
+              "+xy_in=rad +xy_out=deg");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, geocent_to_compoundCRS_context) {
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    // WGS84 geocentric
+    auto src = authFactory->createCoordinateReferenceSystem("4978");
+    auto objDst = PROJStringParser().createFromPROJString(
+        "+proj=longlat +ellps=GRS67 +nadgrids=@foo.gsb +geoidgrids=@foo.gtx "
+        "+type=crs");
+    auto dst = nn_dynamic_pointer_cast<CRS>(objDst);
+    ASSERT_TRUE(dst != nullptr);
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto list = CoordinateOperationFactory::create()->createOperations(
+        src, NN_CHECK_ASSERT(dst), ctxt);
+    ASSERT_EQ(list.size(), 1U);
+    EXPECT_EQ(list[0]->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline +step +inv +proj=cart +ellps=WGS84 +step +inv "
+              "+proj=vgridshift +grids=@foo.gtx +multiplier=1 +step +inv "
+              "+proj=hgridshift +grids=@foo.gsb +step +proj=unitconvert "
+              "+xy_in=rad +xy_out=deg");
+}
+
+// ---------------------------------------------------------------------------
+
 TEST(operation, compoundCRS_to_compoundCRS) {
     auto compound1 = CompoundCRS::create(
         PropertyMap(),
@@ -6112,6 +6391,31 @@ TEST(operation, compoundCRS_to_compoundCRS_with_vertical_transform) {
         EXPECT_EQ(opInverse->inverse()->exportToPROJString(formatter.get()),
                   op->exportToPROJString(formatter2.get()));
     }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, compoundCRS_to_compoundCRS_with_bound_crs_in_horiz_and_vert) {
+    auto objSrc = PROJStringParser().createFromPROJString(
+        "+proj=longlat +ellps=GRS67 +nadgrids=@foo.gsb +geoidgrids=@foo.gtx "
+        "+type=crs");
+    auto src = nn_dynamic_pointer_cast<CRS>(objSrc);
+    ASSERT_TRUE(src != nullptr);
+    auto objDst = PROJStringParser().createFromPROJString(
+        "+proj=longlat +ellps=GRS80 +nadgrids=@bar.gsb +geoidgrids=@bar.gtx "
+        "+type=crs");
+    auto dst = nn_dynamic_pointer_cast<CRS>(objDst);
+    ASSERT_TRUE(dst != nullptr);
+    auto op = CoordinateOperationFactory::create()->createOperation(
+        NN_CHECK_ASSERT(src), NN_CHECK_ASSERT(dst));
+    ASSERT_TRUE(op != nullptr);
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline +step +proj=unitconvert +xy_in=deg +xy_out=rad "
+              "+step +proj=hgridshift +grids=@foo.gsb "
+              "+step +proj=vgridshift +grids=@foo.gtx +multiplier=1 "
+              "+step +inv +proj=vgridshift +grids=@bar.gtx +multiplier=1 "
+              "+step +inv +proj=hgridshift +grids=@bar.gsb "
+              "+step +proj=unitconvert +xy_in=rad +xy_out=deg");
 }
 
 // ---------------------------------------------------------------------------
@@ -6330,8 +6634,119 @@ TEST(operation, compoundCRS_to_geogCRS_3D_context) {
                           PROJStringFormatter::Convention::PROJ_5,
                           authFactory->databaseContext())
                           .get()),
-                  "");
+                  "+proj=noop");
     }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, compoundCRS_from_WKT2_to_geogCRS_3D_context) {
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    auto src = authFactory->createCoordinateReferenceSystem(
+        "7415"); // Amersfoort / RD New + NAP height
+    auto dst =
+        authFactory->createCoordinateReferenceSystem("4937"); // ETRS89 3D
+    auto list =
+        CoordinateOperationFactory::create()->createOperations(src, dst, ctxt);
+    ASSERT_GE(list.size(), 1U);
+    auto wkt2 = src->exportToWKT(
+        WKTFormatter::create(WKTFormatter::Convention::WKT2_2018).get());
+    auto obj = WKTParser().createFromWKT(wkt2);
+    auto src_from_wkt2 = nn_dynamic_pointer_cast<CRS>(obj);
+    ASSERT_TRUE(src_from_wkt2 != nullptr);
+    auto list2 = CoordinateOperationFactory::create()->createOperations(
+        NN_NO_CHECK(src_from_wkt2), dst, ctxt);
+    ASSERT_GE(list.size(), list2.size());
+    for (size_t i = 0; i < list.size(); i++) {
+        const auto &op = list[i];
+        const auto &op2 = list2[i];
+        EXPECT_TRUE(
+            op->isEquivalentTo(op2.get(), IComparable::Criterion::EQUIVALENT));
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, compoundCRS_from_WKT2_no_id_to_geogCRS_3D_context) {
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto ctxt = CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+    ctxt->setSpatialCriterion(
+        CoordinateOperationContext::SpatialCriterion::PARTIAL_INTERSECTION);
+    auto src = authFactory->createCoordinateReferenceSystem(
+        "7415"); // Amersfoort / RD New + NAP height
+    auto dst =
+        authFactory->createCoordinateReferenceSystem("4937"); // ETRS89 3D
+    auto list =
+        CoordinateOperationFactory::create()->createOperations(src, dst, ctxt);
+    ASSERT_GE(list.size(), 1U);
+    auto wkt2 =
+        "COMPOUNDCRS[\"unknown\",\n"
+        "  PROJCRS[\"unknown\",\n"
+        "    BASEGEOGCRS[\"Amersfoort\",\n"
+        "            DATUM[\"Amersfoort\",\n"
+        "                ELLIPSOID[\"Bessel "
+        "1841\",6377397.155,299.1528128]]],\n"
+        "    CONVERSION[\"unknown\",\n"
+        "        METHOD[\"Oblique Stereographic\"],\n"
+        "        PARAMETER[\"Latitude of natural origin\",52.1561605555556],\n"
+        "        PARAMETER[\"Longitude of natural origin\",5.38763888888889],\n"
+        "        PARAMETER[\"Scale factor at natural origin\",0.9999079],\n"
+        "        PARAMETER[\"False easting\",155000],\n"
+        "        PARAMETER[\"False northing\",463000]],\n"
+        "    CS[Cartesian,2],\n"
+        "        AXIS[\"(E)\",east],\n"
+        "        AXIS[\"(N)\",north],\n"
+        "    LENGTHUNIT[\"metre\",1]],\n"
+        "  VERTCRS[\"NAP height\",\n"
+        "    VDATUM[\"Normaal Amsterdams Peil\"],\n"
+        "    CS[vertical,1],\n"
+        "        AXIS[\"gravity-related height (H)\",up,\n"
+        "            LENGTHUNIT[\"metre\",1]]]]";
+    auto obj = WKTParser().createFromWKT(wkt2);
+    auto src_from_wkt2 = nn_dynamic_pointer_cast<CRS>(obj);
+    ASSERT_TRUE(src_from_wkt2 != nullptr);
+    auto list2 = CoordinateOperationFactory::create()->createOperations(
+        NN_NO_CHECK(src_from_wkt2), dst, ctxt);
+    ASSERT_GE(list.size(), list2.size() - 1);
+    for (size_t i = 0; i < list.size(); i++) {
+        const auto &op = list[i];
+        const auto &op2 = list2[i];
+        EXPECT_TRUE(
+            op->isEquivalentTo(op2.get(), IComparable::Criterion::EQUIVALENT));
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, boundCRS_to_compoundCRS) {
+    auto objSrc = PROJStringParser().createFromPROJString(
+        "+proj=longlat +ellps=GRS67 +nadgrids=@foo.gsb +type=crs");
+    auto src = nn_dynamic_pointer_cast<CRS>(objSrc);
+    ASSERT_TRUE(src != nullptr);
+    auto objDst = PROJStringParser().createFromPROJString(
+        "+proj=longlat +ellps=GRS80 +nadgrids=@bar.gsb +geoidgrids=@bar.gtx "
+        "+type=crs");
+    auto dst = nn_dynamic_pointer_cast<CRS>(objDst);
+    ASSERT_TRUE(dst != nullptr);
+
+    auto op = CoordinateOperationFactory::create()->createOperation(
+        NN_CHECK_ASSERT(src), NN_CHECK_ASSERT(dst));
+    ASSERT_TRUE(op != nullptr);
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline "
+              "+step +proj=unitconvert +xy_in=deg +xy_out=rad "
+              "+step +proj=hgridshift +grids=@foo.gsb "
+              "+step +inv +proj=vgridshift +grids=@bar.gtx +multiplier=1 "
+              "+step +inv +proj=hgridshift +grids=@bar.gsb "
+              "+step +proj=unitconvert +xy_in=rad +xy_out=deg");
+
+    auto opInverse = CoordinateOperationFactory::create()->createOperation(
+        NN_CHECK_ASSERT(dst), NN_CHECK_ASSERT(src));
+    ASSERT_TRUE(opInverse != nullptr);
+    EXPECT_TRUE(opInverse->inverse()->_isEquivalentTo(op.get()));
 }
 
 // ---------------------------------------------------------------------------
@@ -7497,5 +7912,125 @@ TEST(operation, validateParameters) {
             "Cannot find expected parameter Unit conversion scalar",
             "Parameter extra param found but not expected for this method"};
         EXPECT_EQ(validation, expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(operation, normalizeForVisualization) {
+
+    auto authFactory =
+        AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+
+    // Source(geographic) must be inverted
+    {
+        auto src = authFactory->createCoordinateReferenceSystem("4326");
+        auto dst = authFactory->createCoordinateReferenceSystem("32631");
+        auto op =
+            CoordinateOperationFactory::create()->createOperation(src, dst);
+        ASSERT_TRUE(op != nullptr);
+        auto opNormalized = op->normalizeForVisualization();
+        EXPECT_FALSE(opNormalized->_isEquivalentTo(op.get()));
+        EXPECT_EQ(opNormalized->exportToPROJString(
+                      PROJStringFormatter::create().get()),
+                  "+proj=pipeline "
+                  "+step +proj=unitconvert +xy_in=deg +xy_out=rad "
+                  "+step +proj=utm +zone=31 +ellps=WGS84");
+    }
+
+    // Target(geographic) must be inverted
+    {
+        auto src = authFactory->createCoordinateReferenceSystem("32631");
+        auto dst = authFactory->createCoordinateReferenceSystem("4326");
+        auto op =
+            CoordinateOperationFactory::create()->createOperation(src, dst);
+        ASSERT_TRUE(op != nullptr);
+        auto opNormalized = op->normalizeForVisualization();
+        EXPECT_FALSE(opNormalized->_isEquivalentTo(op.get()));
+        EXPECT_EQ(opNormalized->exportToPROJString(
+                      PROJStringFormatter::create().get()),
+                  "+proj=pipeline "
+                  "+step +inv +proj=utm +zone=31 +ellps=WGS84 "
+                  "+step +proj=unitconvert +xy_in=rad +xy_out=deg");
+    }
+
+    // Source(geographic) and target(projected) must be inverted
+    {
+        auto src = authFactory->createCoordinateReferenceSystem("4326");
+        auto dst = authFactory->createCoordinateReferenceSystem("3040");
+        auto op =
+            CoordinateOperationFactory::create()->createOperation(src, dst);
+        ASSERT_TRUE(op != nullptr);
+        auto opNormalized = op->normalizeForVisualization();
+        EXPECT_FALSE(opNormalized->_isEquivalentTo(op.get()));
+        EXPECT_EQ(opNormalized->exportToPROJString(
+                      PROJStringFormatter::create().get()),
+                  "+proj=pipeline "
+                  "+step +proj=unitconvert +xy_in=deg +xy_out=rad "
+                  "+step +proj=utm +zone=28 +ellps=GRS80");
+    }
+
+    // No inversion
+    {
+        auto src = authFactory->createCoordinateReferenceSystem("32631");
+        auto dst = authFactory->createCoordinateReferenceSystem("32632");
+        auto op =
+            CoordinateOperationFactory::create()->createOperation(src, dst);
+        ASSERT_TRUE(op != nullptr);
+        auto opNormalized = op->normalizeForVisualization();
+        EXPECT_TRUE(opNormalized->_isEquivalentTo(op.get()));
+    }
+
+    // Source(compoundCRS) and target(geographic 3D) must be inverted
+    {
+        auto ctxt =
+            CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+        ctxt->setUsePROJAlternativeGridNames(false);
+        auto src = CompoundCRS::create(
+            PropertyMap(),
+            std::vector<CRSNNPtr>{
+                authFactory->createCoordinateReferenceSystem("4326"),
+                // EGM2008 height
+                authFactory->createCoordinateReferenceSystem("3855")});
+        auto list = CoordinateOperationFactory::create()->createOperations(
+            src,
+            authFactory->createCoordinateReferenceSystem("4979"), // WGS 84 3D
+            ctxt);
+        ASSERT_EQ(list.size(), 2U);
+        auto op = list[1];
+        auto opNormalized = op->normalizeForVisualization();
+        EXPECT_FALSE(opNormalized->_isEquivalentTo(op.get()));
+        EXPECT_EQ(opNormalized->exportToPROJString(
+                      PROJStringFormatter::create(
+                          PROJStringFormatter::Convention::PROJ_5,
+                          authFactory->databaseContext())
+                          .get()),
+                  "+proj=pipeline "
+                  "+step +proj=unitconvert +xy_in=deg +xy_out=rad "
+                  "+step +proj=vgridshift +grids=egm08_25.gtx +multiplier=1 "
+                  "+step +proj=unitconvert +xy_in=rad +xy_out=deg");
+    }
+
+    // Source(boundCRS) and target(geographic) must be inverted
+    {
+        auto src = BoundCRS::createFromTOWGS84(
+            GeographicCRS::EPSG_4269, std::vector<double>{1, 2, 3, 4, 5, 6, 7});
+        auto dst = authFactory->createCoordinateReferenceSystem("4326");
+        auto op =
+            CoordinateOperationFactory::create()->createOperation(src, dst);
+        ASSERT_TRUE(op != nullptr);
+        auto opNormalized = op->normalizeForVisualization();
+        EXPECT_FALSE(opNormalized->_isEquivalentTo(op.get()));
+        EXPECT_EQ(opNormalized->exportToPROJString(
+                      PROJStringFormatter::create().get()),
+                  "+proj=pipeline "
+                  "+step +proj=unitconvert +xy_in=deg +xy_out=rad "
+                  "+step +proj=push +v_3 "
+                  "+step +proj=cart +ellps=GRS80 "
+                  "+step +proj=helmert +x=1 +y=2 +z=3 +rx=4 +ry=5 +rz=6 +s=7 "
+                  "+convention=position_vector "
+                  "+step +inv +proj=cart +ellps=WGS84 "
+                  "+step +proj=pop +v_3 "
+                  "+step +proj=unitconvert +xy_in=rad +xy_out=deg");
     }
 }

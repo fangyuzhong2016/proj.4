@@ -35,10 +35,10 @@
 #include <unistd.h>
 
 #include "proj_internal.h" // For pj_gc_unloadall()
-#include "proj_api.h"
+#include "proj.h"
 
 /* Standalone build:
-g++ -g -std=c++11 standard_fuzzer.cpp -o standard_fuzzer -fvisibility=hidden -DSTANDALONE ../../src/.libs/libproj.a -lpthread -lsqlite3 -I../../src -I../../include
+g++ -g -std=c++11 proj_crs_to_crs_fuzzer.cpp -o proj_crs_to_crs_fuzzer -fvisibility=hidden -DSTANDALONE ../../src/.libs/libproj.a -lpthread -lsqlite3 -I../../src -I../../include
 */
 
 extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv);
@@ -72,8 +72,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *buf, size_t len)
         return 0;
     }
 
-    /* We expect the blob to be 3 lines: */
-    /* source proj string\ndestination proj string\nx y */
+    /* We expect the blob to be 2 lines: */
+    /* source_string\ndestination_string */
     char* buf_dup = (char*)malloc(len+1);
     memcpy(buf_dup, buf, len);
     buf_dup[len] = 0;
@@ -86,77 +86,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *buf, size_t len)
     }
     first_newline[0] = 0;
     char* second_line = first_newline + 1;
-    char* second_newline = strchr(second_line, '\n');
-    if( !second_newline )
-    {
-        free(buf_dup);
-        return 0;
-    }
-    second_newline[0] = 0;
-    char* third_line = second_newline + 1;
-    projPJ pj_src = pj_init_plus(first_line);
-    if( !pj_src )
-    {
-        free(buf_dup);
-        return 0;
-    }
-    projPJ pj_dst = pj_init_plus(second_line);
-    if( !pj_dst )
-    {
-        free(buf_dup);
-        pj_free(pj_src);
-        pj_gc_unloadall(pj_get_default_ctx());
-        pj_deallocate_grids();
-        return 0;
-    }
-    double x = 0, y = 0, z = 9;
-    bool from_binary = false;
-    bool has_z = false;
-    if( strncmp(third_line, "BINARY_2D:", strlen("BINARY_2D:")) == 0 &&
-        third_line - first_line + strlen("BINARY_2D:") + 2 * sizeof(double) <= len )
-    {
-        from_binary = true;
-        memcpy(&x, third_line + strlen("BINARY_2D:"), sizeof(double));
-        memcpy(&y, third_line + strlen("BINARY_2D:") + sizeof(double), sizeof(double));
-    }
-    else if( strncmp(third_line, "BINARY_3D:", strlen("BINARY_3D:")) == 0 &&
-             third_line - first_line + strlen("BINARY_3D:") + 3 * sizeof(double) <= len )
-    {
-        from_binary = true;
-        has_z = true;
-        memcpy(&x, third_line + strlen("BINARY_3D:"), sizeof(double));
-        memcpy(&y, third_line + strlen("BINARY_3D:") + sizeof(double), sizeof(double));
-        memcpy(&z, third_line + strlen("BINARY_3D:") + 2 * sizeof(double), sizeof(double));
-    }
-    else if( sscanf(third_line, "%lf %lf", &x, &y) != 2 )
-    {
-        free(buf_dup);
-        pj_free(pj_src);
-        pj_free(pj_dst);
-        pj_gc_unloadall(pj_get_default_ctx());
-        pj_deallocate_grids();
-        return 0;
-    }
+
 #ifdef STANDALONE
     fprintf(stderr, "src=%s\n", first_line);
     fprintf(stderr, "dst=%s\n", second_line);
-    if( from_binary )
-    {
-        if( has_z )
-            fprintf(stderr, "coord (from binary)=%.18g %.18g %.18g\n", x, y, z);
-        else
-            fprintf(stderr, "coord (from binary)=%.18g %.18g\n", x, y);
-    }
-    else
-        fprintf(stderr, "coord=%s\n", third_line);
 #endif
-    if( has_z )
-        pj_transform( pj_src, pj_dst, 1, 0, &x, &y, &z );
-    else
-        pj_transform( pj_src, pj_dst, 1, 0, &x, &y, NULL );
+
+    proj_destroy(
+        proj_create_crs_to_crs(nullptr, first_line, second_line, nullptr));
+
     free(buf_dup);
-    pj_free(pj_src);
-    pj_free(pj_dst);
     pj_gc_unloadall(pj_get_default_ctx());
     pj_deallocate_grids();
     return 0;
@@ -169,20 +108,8 @@ int main(int argc, char* argv[])
     if( argc < 2 )
     {
         const char str[] =
-            "+proj=longlat +datum=WGS84 +nodefs\n+proj=longlat +datum=WGS84 +nodefs\n2 49";
+            "+proj=longlat +datum=WGS84 +nodefs\n+proj=longlat +datum=WGS84 +nodefs";
         int ret = LLVMFuzzerTestOneInput((const uint8_t*)(str), sizeof(str) - 1);
-        if( ret )
-            return ret;
-
-        const char str2[] =
-            "+proj=longlat +datum=WGS84 +nodefs\n+proj=longlat +datum=WGS84 +nodefs\nBINARY_2D:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFF";
-        ret = LLVMFuzzerTestOneInput((const uint8_t*)(str2), sizeof(str2) - 1);
-        if( ret )
-            return ret;
-
-        const char str3[] =
-            "+proj=longlat +datum=WGS84 +nodefs\n+proj=longlat +datum=WGS84 +nodefs\nBINARY_3D:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFF\x00\x00\x00\x00\x00\x00\x00\x00";
-        ret = LLVMFuzzerTestOneInput((const uint8_t*)(str3), sizeof(str3) - 1);
         if( ret )
             return ret;
 

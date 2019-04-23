@@ -22,7 +22,6 @@
 
 static PJ *Proj;
 static union {
-    PJ_UV (*generic)(PJ_UV, PJ *);
     PJ_XY (*fwd)(PJ_LP, PJ *);
     PJ_LP (*inv)(PJ_XY, PJ *);
 } proj;
@@ -46,7 +45,7 @@ static char oform_buffer[16];   /* Buffer for oform when using -d */
 
 static const char
     *oterr = "*\t*",    /* output line for unprojectable input */
-    *usage = "%s\nusage: %s [ -bdeEfiIlmorsStTvVwW [args] ] [ +opts[=arg] ] [ files ]\n";
+    *usage = "%s\nusage: %s [-bdeEfiIlmorsStTvVwW [args]] [+opt[=arg] ...] [file ...]\n";
 
 static PJ_FACTORS facs;
 
@@ -533,7 +532,7 @@ int main(int argc, char **argv) {
 
         } else {
             if ((fid = fopen(*eargv, "rb")) == nullptr) {
-                emess(-2, *eargv, "input file");
+                emess(-2, "input file: %s", *eargv);
                 continue;
             }
             emess_dat.File_name = *eargv;

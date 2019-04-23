@@ -63,15 +63,15 @@ namespace operation {
 
 /** \brief Grid description */
 struct GridDescription {
-    std::string shortName{};   /**< Grid short filename */
-    std::string fullName{};    /**< Grid full path name (if found) */
-    std::string packageName{}; /**< Package name (or empty) */
-    std::string url{}; /**< Grid URL (if packageName is empty), or package
-                            URL (or empty) */
-    bool directDownload = false; /**< Whether url can be fetched directly. */
+    std::string shortName;   /**< Grid short filename */
+    std::string fullName;    /**< Grid full path name (if found) */
+    std::string packageName; /**< Package name (or empty) */
+    std::string url;         /**< Grid URL (if packageName is empty), or package
+                                    URL (or empty) */
+    bool directDownload;     /**< Whether url can be fetched directly. */
     /** Whether the grid is released with an open license. */
-    bool openLicense = false;
-    bool available = false; /**< Whether GRID is available. */
+    bool openLicense;
+    bool available; /**< Whether GRID is available. */
 
     //! @cond Doxygen_Suppress
     bool operator<(const GridDescription &other) const {
@@ -150,6 +150,16 @@ class PROJ_GCC_DLL CoordinateOperation : public common::ObjectUsage,
 
     PROJ_DLL bool hasBallparkTransformation() const;
 
+    PROJ_DLL static const std::string OPERATION_VERSION_KEY;
+
+    PROJ_DLL CoordinateOperationNNPtr normalizeForVisualization() const;
+
+    PROJ_PRIVATE :
+        //! @cond Doxygen_Suppress
+        PROJ_FOR_TEST CoordinateOperationNNPtr
+        shallowClone() const;
+    //! @endcond
+
   protected:
     PROJ_INTERNAL CoordinateOperation();
     PROJ_INTERNAL CoordinateOperation(const CoordinateOperation &other);
@@ -170,6 +180,12 @@ class PROJ_GCC_DLL CoordinateOperation : public common::ObjectUsage,
     void setAccuracies(
         const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies);
     PROJ_INTERNAL void setHasBallparkTransformation(bool b);
+
+    PROJ_INTERNAL void
+    setProperties(const util::PropertyMap
+                      &properties); // throw(InvalidValueTypeException)
+
+    PROJ_INTERNAL virtual CoordinateOperationNNPtr _shallowClone() const = 0;
 
   private:
     PROJ_OPAQUE_PRIVATE_DATA
@@ -1320,6 +1336,8 @@ class PROJ_GCC_DLL Conversion : public SingleOperation {
     PROJ_FRIEND(crs::ProjectedCRS);
     PROJ_INTERNAL bool addWKTExtensionNode(io::WKTFormatter *formatter) const;
 
+    PROJ_INTERNAL CoordinateOperationNNPtr _shallowClone() const override;
+
   private:
     PROJ_OPAQUE_PRIVATE_DATA
     Conversion &operator=(const Conversion &other) = delete;
@@ -1535,6 +1553,8 @@ class PROJ_GCC_DLL Transformation : public SingleOperation {
 
     PROJ_INTERNAL TransformationNNPtr inverseAsTransformation() const;
 
+    PROJ_INTERNAL CoordinateOperationNNPtr _shallowClone() const override;
+
   private:
     PROJ_OPAQUE_PRIVATE_DATA
 };
@@ -1626,11 +1646,14 @@ class PROJ_GCC_DLL ConcatenatedOperation final : public CoordinateOperation {
     //! @endcond
 
   protected:
+    PROJ_INTERNAL ConcatenatedOperation(const ConcatenatedOperation &other);
     PROJ_INTERNAL explicit ConcatenatedOperation(
         const std::vector<CoordinateOperationNNPtr> &operationsIn);
 
     PROJ_INTERNAL void _exportToPROJString(io::PROJStringFormatter *formatter)
         const override; // throw(FormattingException)
+
+    PROJ_INTERNAL CoordinateOperationNNPtr _shallowClone() const override;
 
     INLINED_MAKE_SHARED
 

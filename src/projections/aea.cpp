@@ -155,6 +155,8 @@ static PJ *setup(PJ *P) {
     P->inv = e_inverse;
     P->fwd = e_forward;
 
+    if (fabs(Q->phi1) > M_HALFPI || fabs(Q->phi2) > M_HALFPI)
+        return destructor(P, PJD_ERR_LAT_LARGER_THAN_90);
     if (fabs(Q->phi1 + Q->phi2) < EPS10)
         return destructor(P, PJD_ERR_CONIC_LAT_EQUAL);
     Q->n = sinphi = sin(Q->phi1);
@@ -178,6 +180,10 @@ static PJ *setup(PJ *P) {
                 return destructor(P, 0);
 
             Q->n = (m1 * m1 - m2 * m2) / (ml2 - ml1);
+            if (Q->n == 0) {
+                // Not quite, but es is very close to 1...
+                return destructor(P, PJD_ERR_INVALID_ECCENTRICITY);
+            }
         }
         Q->ec = 1. - .5 * P->one_es * log((1. - P->e) /
             (1. + P->e)) / P->e;

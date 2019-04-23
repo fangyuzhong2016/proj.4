@@ -117,7 +117,6 @@ Thomas Knudsen, thokn@sdfe.dk, 2017-10-01/2017-10-08
 #include "proj_internal.h"
 #include "proj_math.h"
 #include "proj_strtod.h"
-#include "proj_internal.h"
 
 #include "optargpm.h"
 
@@ -148,7 +147,7 @@ static ffio *ffio_destroy (ffio *G);
 static ffio *ffio_create (const char **tags, size_t n_tags, size_t max_record_size);
 
 static const char *gie_tags[] = {
-    "<gie>", "operation", "use_proj4_init_rules",
+    "<gie>", "operation", "crs_src", "crs_dst", "use_proj4_init_rules",
     "accept", "expect", "roundtrip", "banner", "verbose",
     "direction", "tolerance", "ignore", "require_grid", "echo", "skip", "</gie>"
 };
@@ -175,6 +174,8 @@ static const char *err_const_from_errno (int err);
 
 typedef struct {
     char operation[MAX_OPERATION+1];
+    char crs_dst[MAX_OPERATION+1];
+    char crs_src[MAX_OPERATION+1];
     PJ *P;
     PJ_COORD a, b, c, e;
     PJ_DIRECTION dir;
@@ -247,6 +248,7 @@ int main (int argc, char **argv) {
     T.ignore = 5555; /* Error code that will not be issued by proj_create() */
     T.use_proj4_init_rules = FALSE;
 
+    /* coverity[tainted_data] */
     o = opt_parse (argc, argv, "hlvq", "o", longflags, longkeys);
     if (nullptr==o)
         return 0;
@@ -607,6 +609,65 @@ either a conversion or a transformation)
     return 0;
 }
 
+static int crs_to_crs_operation() {
+    T.op_id++;
+    T.operation_lineno = F->lineno;
+
+    if (T.verbosity > 1) {
+        char buffer[80];
+        finish_previous_operation (F->args);
+        snprintf(buffer, 80, "%-36.36s -> %-36.36s", T.crs_src, T.crs_dst);
+        banner (buffer);
+    }
+
+    T.op_ok = 0;
+    T.op_ko = 0;
+    T.op_skip = 0;
+    T.skip_test = 0;
+
+    direction ("forward");
+    tolerance ("0.5 mm");
+    ignore ("pjd_err_dont_skip");
+
+    proj_errno_reset (T.P);
+
+    if (T.P)
+        proj_destroy (T.P);
+    proj_errno_reset (nullptr);
+    proj_context_use_proj4_init_rules(nullptr, T.use_proj4_init_rules);
+
+
+    T.P = proj_create_crs_to_crs(nullptr, T.crs_src, T.crs_dst, nullptr);
+
+    strcpy(T.crs_src, "");
+    strcpy(T.crs_dst, "");
+    return 0;
+}
+
+static int crs_src(const char *args) {
+    strncpy (&(T.crs_src[0]), F->args, MAX_OPERATION);
+    T.crs_src[MAX_OPERATION] = '\0';
+    (void) args;
+
+    if (strcmp(T.crs_src, "") != 0 && strcmp(T.crs_dst, "") != 0) {
+        crs_to_crs_operation();
+    }
+
+    return 0;
+}
+
+static int crs_dst(const char *args) {
+    strncpy (&(T.crs_dst[0]), F->args, MAX_OPERATION);
+    T.crs_dst[MAX_OPERATION] = '\0';
+    (void) args;
+
+    if (strcmp(T.crs_src, "") != 0 && strcmp(T.crs_dst, "") != 0) {
+        crs_to_crs_operation();
+    }
+
+    return 0;
+}
+
 static PJ_COORD torad_coord (PJ *P, PJ_DIRECTION dir, PJ_COORD a) {
     size_t i, n;
     const char *axis = "enut";
@@ -944,7 +1005,8 @@ Tell GIE what to expect, when transforming the ACCEPTed input
     else
         d = proj_xyz_dist (co, ce);
 
-    if (d > T.tolerance)
+    // Test written like that to handle NaN
+    if (!(d <= T.tolerance))
         return expect_message (d, args);
     succs++;
 
@@ -1000,6 +1062,8 @@ static int dispatch (const char *cmnd, const char *args) {
     if (T.skip)
         return SKIP;
     if  (0==strcmp (cmnd, "operation")) return  operation ((char *) args);
+    if  (0==strcmp (cmnd, "crs_src"))   return  crs_src   (args);
+    if  (0==strcmp (cmnd, "crs_dst"))   return  crs_dst   (args);
     if (T.skip_test)
     {
         if  (0==strcmp (cmnd, "expect"))    return  another_skip();
@@ -1033,7 +1097,7 @@ static const struct errno_vs_err_const lookup[] = {
     {"pjd_err_no_colon_in_init_string"  ,  -3},
     {"pjd_err_proj_not_named"           ,  -4},
     {"pjd_err_unknown_projection_id"    ,  -5},
-    {"pjd_err_eccentricity_is_one"      ,  -6},
+    {"pjd_err_invalid_eccentricity"      ,  -6},
     {"pjd_err_unknown_unit_id"          ,  -7},
     {"pjd_err_invalid_boolean_param"    ,  -8},
     {"pjd_err_unknown_ellp_param"       ,  -9},
@@ -1088,6 +1152,7 @@ static const struct errno_vs_err_const lookup[] = {
     {"pjd_err_invalid_arg"              ,  -58},
     {"pjd_err_inconsistent_unit"        ,  -59},
     {"pjd_err_mutually_exclusive_args"  ,  -60},
+    {"pjd_err_generic_error"            ,  -61},
     {"pjd_err_dont_skip"                ,  5555},
     {"pjd_err_unknown"                  ,  9999},
     {"pjd_err_enomem"                   ,  ENOMEM},

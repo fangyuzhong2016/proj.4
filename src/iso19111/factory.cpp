@@ -259,7 +259,7 @@ struct DatabaseContext::Private {
     static void getFromCache(LRUCacheOfObjects &cache, const std::string &code,
                              util::BaseObjectPtr &obj);
 
-    void closeDB();
+    void closeDB() noexcept;
 
     // cppcheck-suppress functionStatic
     void registerFunctions();
@@ -295,7 +295,7 @@ DatabaseContext::Private::~Private() {
 
 // ---------------------------------------------------------------------------
 
-void DatabaseContext::Private::closeDB() {
+void DatabaseContext::Private::closeDB() noexcept {
 
     if (detach_) {
         // Workaround a bug visible in SQLite 3.8.1 and 3.8.2 that causes
@@ -309,7 +309,10 @@ void DatabaseContext::Private::closeDB() {
         // https://github.com/mackyle/sqlite/commit/ccf328c4318eacedab9ed08c404bc4f402dcad19
         // also seemed to hide the issue.
         // Detaching a database hides the issue, not sure if it is by chance...
-        run("DETACH DATABASE db_0");
+        try {
+            run("DETACH DATABASE db_0");
+        } catch (...) {
+        }
         detach_ = false;
     }
 
@@ -1024,8 +1027,8 @@ bool DatabaseContext::lookForGridInfo(const std::string &projFilename,
         info.url = url;
         info.directDownload = directDownload;
         info.openLicense = openLicense;
-        info.gridAvailable = gridAvailable;
     }
+    info.gridAvailable = gridAvailable;
     info.found = ret;
     d->cache(projFilename, info);
     return ret;
@@ -1359,6 +1362,15 @@ const DatabaseContextNNPtr &AuthorityFactory::databaseContext() const {
 
 // ---------------------------------------------------------------------------
 
+//! @cond Doxygen_Suppress
+AuthorityFactory::CRSInfo::CRSInfo()
+    : authName{}, code{}, name{}, type{ObjectType::CRS}, deprecated{},
+      bbox_valid{}, west_lon_degree{}, south_lat_degree{}, east_lon_degree{},
+      north_lat_degree{}, areaName{}, projectionMethodName{} {}
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
 /** \brief Returns an arbitrary object from a code.
  *
  * The returned object will typically be an instance of Datum,
@@ -1606,10 +1618,12 @@ static double normalizeMeasure(const std::string &uom_code,
         assert(seconds.size() == precision - 2);
         normalized_value =
             (normalized_value < 0 ? -1.0 : 1.0) *
-            (int(std::fabs(normalized_value)) + c_locale_stod(minutes) / 60. +
+            (std::floor(std::fabs(normalized_value)) +
+             c_locale_stod(minutes) / 60. +
              (c_locale_stod(seconds) / std::pow(10, seconds.size() - 2)) /
                  3600.);
         normalized_uom_code = common::UnitOfMeasure::DEGREE.code();
+        /* coverity[overflow_sink] */
         return normalized_value;
     } else {
         normalized_uom_code = uom_code;
@@ -2588,7 +2602,7 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             "rate_scale_difference, rate_scale_difference_uom_auth_name, "
             "rate_scale_difference_uom_code, epoch, epoch_uom_auth_name, "
             "epoch_uom_code, px, py, pz, pivot_uom_auth_name, pivot_uom_code, "
-            "deprecated FROM "
+            "operation_version, deprecated FROM "
             "helmert_transformation WHERE auth_name = ? AND code = ?",
             code);
         if (res.empty()) {
@@ -2649,6 +2663,7 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             const auto &pivot_uom_auth_name = row[idx++];
             const auto &pivot_uom_code = row[idx++];
 
+            const auto &operation_version = row[idx++];
             const auto &deprecated_str = row[idx++];
             const bool deprecated = deprecated_str == "1";
             assert(idx == row.size());
@@ -2789,6 +2804,10 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             auto props =
                 d->createProperties(code, name, deprecated,
                                     area_of_use_auth_name, area_of_use_code);
+            if (!operation_version.empty()) {
+                props.set(operation::CoordinateOperation::OPERATION_VERSION_KEY,
+                          operation_version);
+            }
 
             auto propsMethod =
                 util::PropertyMap()
@@ -2819,8 +2838,8 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             "grid_name, "
             "grid2_param_auth_name, grid2_param_code, grid2_param_name, "
             "grid2_name, "
-            "interpolation_crs_auth_name, interpolation_crs_code, deprecated "
-            "FROM "
+            "interpolation_crs_auth_name, interpolation_crs_code, "
+            "operation_version, deprecated FROM "
             "grid_transformation WHERE auth_name = ? AND code = ?",
             code);
         if (res.empty()) {
@@ -2852,7 +2871,7 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             const auto &grid2_name = row[idx++];
             const auto &interpolation_crs_auth_name = row[idx++];
             const auto &interpolation_crs_code = row[idx++];
-
+            const auto &operation_version = row[idx++];
             const auto &deprecated_str = row[idx++];
             const bool deprecated = deprecated_str == "1";
             assert(idx == row.size());
@@ -2898,6 +2917,10 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             auto props =
                 d->createProperties(code, name, deprecated,
                                     area_of_use_auth_name, area_of_use_code);
+            if (!operation_version.empty()) {
+                props.set(operation::CoordinateOperation::OPERATION_VERSION_KEY,
+                          operation_version);
+            }
             auto propsMethod =
                 util::PropertyMap()
                     .set(metadata::Identifier::CODESPACE_KEY, method_auth_name)
@@ -2939,8 +2962,8 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             buffer << ", param" << i << "_uom_auth_name";
             buffer << ", param" << i << "_uom_code";
         }
-        buffer << ", deprecated FROM other_transformation WHERE auth_name = ? "
-                  "AND code = ?";
+        buffer << ", operation_version, deprecated FROM other_transformation "
+                  "WHERE auth_name = ? AND code = ?";
 
         auto res = d->runWithCodeParam(buffer.str(), code);
         if (res.empty()) {
@@ -2993,6 +3016,7 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             }
             idx = base_param_idx + 6 * N_MAX_PARAMS;
 
+            const auto &operation_version = row[idx++];
             const auto &deprecated_str = row[idx++];
             const bool deprecated = deprecated_str == "1";
             assert(idx == row.size());
@@ -3007,6 +3031,10 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             auto props =
                 d->createProperties(code, name, deprecated,
                                     area_of_use_auth_name, area_of_use_code);
+            if (!operation_version.empty()) {
+                props.set(operation::CoordinateOperation::OPERATION_VERSION_KEY,
+                          operation_version);
+            }
 
             std::vector<metadata::PositionalAccuracyNNPtr> accuracies;
             if (!accuracy.empty()) {
@@ -3060,7 +3088,7 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             "target_crs_auth_name, target_crs_code, "
             "area_of_use_auth_name, area_of_use_code, accuracy, "
             "step1_auth_name, step1_code, step2_auth_name, step2_code, "
-            "step3_auth_name, step3_code, deprecated FROM "
+            "step3_auth_name, step3_code, operation_version, deprecated FROM "
             "concatenated_operation WHERE auth_name = ? AND code = ?",
             code);
         if (res.empty()) {
@@ -3085,6 +3113,7 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             const auto &step2_code = row[idx++];
             const auto &step3_auth_name = row[idx++];
             const auto &step3_code = row[idx++];
+            const auto &operation_version = row[idx++];
             const auto &deprecated_str = row[idx++];
             const bool deprecated = deprecated_str == "1";
 
@@ -3118,6 +3147,10 @@ operation::CoordinateOperationNNPtr AuthorityFactory::createCoordinateOperation(
             auto props =
                 d->createProperties(code, name, deprecated,
                                     area_of_use_auth_name, area_of_use_code);
+            if (!operation_version.empty()) {
+                props.set(operation::CoordinateOperation::OPERATION_VERSION_KEY,
+                          operation_version);
+            }
 
             std::vector<metadata::PositionalAccuracyNNPtr> accuracies;
             if (!accuracy.empty()) {
